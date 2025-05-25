@@ -346,6 +346,11 @@
 </head>
 
 <body>
+  <!-- 音声要素の追加 -->
+  <audio id="buttonClickSound" src="sounds/click.mp3"></audio>
+  <audio id="startSound" src="sounds/start.mp3"></audio>
+  <audio id="stopSound" src="sounds/stop.mp3"></audio>
+
   <div class="container">
     <div class="status-panel">
       <h2>板の状態</h2>
@@ -425,6 +430,15 @@
   </div>
 
   <script>
+    // 音を鳴らす関数
+    function playSound(soundId) {
+      const audio = document.getElementById(soundId);
+      if (audio) {
+        audio.currentTime = 0; // 再生位置をリセット
+        audio.play().catch(error => console.log('音声再生エラー:', error));
+      }
+    }
+
     // バッテリー関連の状態管理
     let batteryPercentage = 100;
     let isCharging = false;
@@ -503,6 +517,7 @@
 
     destinationButtons.forEach(button => {
       button.addEventListener('click', function () {
+        playSound('buttonClickSound');
         // 他のボタンの選択を解除
         destinationButtons.forEach(btn => btn.classList.remove('selected'));
         // このボタンを選択状態に
@@ -540,6 +555,7 @@
     // 数値ボタンの処理
     document.querySelectorAll('.number-button').forEach(button => {
       button.addEventListener('click', function () {
+        playSound('buttonClickSound');
         const value = this.textContent;
 
         if (value === 'C') {
@@ -571,22 +587,28 @@
       const roomNumber = document.getElementById('roomNumber').value;
 
       if (!selectedBuilding) {
+        playSound('buttonClickSound');
         showMessageModal('エラー', '建物を選択してください');
         return;
       }
       if (!roomNumber || roomNumber === '0') {
+        playSound('buttonClickSound');
         showMessageModal('エラー', '部屋番号を入力してください');
         return;
       }
       if (isCharging) {
+        playSound('buttonClickSound');
         showMessageModal('エラー', '充電中は移動できません');
         return;
       }
       if (batteryPercentage < 10) {
+        playSound('buttonClickSound');
         showMessageModal('エラー', 'バッテリー残量が少ないため、移動できません');
         return;
       }
 
+      // 移動開始時の音を鳴らす
+      playSound('startSound');
       // ここで移動開始の処理を実装
       console.log('移動開始:', selectedBuilding, roomNumber);
       updateBoardStatus('in-use');
@@ -595,6 +617,8 @@
 
     // 緊急停止ボタンのイベントハンドラ
     document.getElementById('stopButton').addEventListener('click', function () {
+      // 緊急停止時の音を鳴らす
+      playSound('stopSound');
       // ここで緊急停止の処理を実装
       console.log('緊急停止');
       updateBoardStatus('available');
