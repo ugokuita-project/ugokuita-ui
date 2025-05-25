@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>動く板シェア</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+    }
+
+    #map {
+      height: 100vh;
+      width: 100%;
+    }
+
+    .controls {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+      z-index: 1000;
+    }
+
+    button {
+      padding: 10px 20px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+
+    button:hover {
+      background: #45a049;
+    }
+
+    button:disabled {
+      background: #cccccc;
+      cursor: not-allowed;
+    }
+
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 2000;
+      backdrop-filter: blur(3px);
+    }
+
+    .modal {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      z-index: 2001;
+      min-width: 300px;
+      text-align: center;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .modal.active {
+      opacity: 1;
+    }
+
+    .modal h3 {
+      margin: 0 0 15px 0;
+      color: #333;
+    }
+
+    .modal p {
+      margin: 0 0 20px 0;
+      color: #666;
+    }
+
+    .modal-buttons {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .modal-buttons button {
+      min-width: 100px;
+    }
+
+    .loading-dots:after {
+      content: '';
+      animation: none;
+    }
+
+    /* ローディングスピナーのスタイル */
+    .loader {
+      width: 50px;
+      height: 50px;
+      border: 5px solid #f3f3f3;
+      border-top: 5px solid #4CAF50;
+      border-radius: 50%;
+      margin: 20px auto;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+
+    .loading-modal-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 15px;
+    }
+
+    .status-panel {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+      z-index: 1000;
+      min-width: 200px;
+    }
+
+    .status-panel h3 {
+      margin: 0 0 10px 0;
+      font-size: 16px;
+      color: #333;
+    }
+
+    .status-item {
+      margin-bottom: 12px;
+    }
+
+    .status-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .status-label {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 4px;
+    }
+
+    .battery-bar {
+      width: 100%;
+      height: 8px;
+      background: #eee;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .battery-level {
+      height: 100%;
+      background: #4CAF50;
+      border-radius: 4px;
+      transition: width 0.3s ease;
+    }
+
+    .battery-level.low {
+      background: #ff5722;
+    }
+
+    .status-value {
+      font-size: 14px;
+      font-weight: bold;
+      color: #333;
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+      color: white;
+    }
+
+    .status-badge.available {
+      background: #4CAF50;
+    }
+
+    .status-badge.in-use {
+      background: #2196F3;
+    }
+
+    .status-badge.charging {
+      background: #FFC107;
+    }
+
+    .status-badge.maintenance {
+      background: #FF5722;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="map"></div>
+  <div class="status-panel">
+    <h3>板の状態</h3>
+    <div class="status-item">
+      <div class="status-label">バッテリー残量</div>
+      <div class="battery-bar">
+        <div id="batteryLevel" class="battery-level" style="width: 75%;"></div>
+      </div>
+      <div id="batteryText" class="status-value">75%</div>
+    </div>
+    <div class="status-item">
+      <div class="status-label">状態</div>
+      <div id="boardStatus" class="status-badge available">利用可能</div>
+    </div>
+    <div class="status-item">
+      <div class="status-label">最終更新</div>
+      <div id="lastUpdate" class="status-value">2024/03/21 15:30</div>
+    </div>
+  </div>
+  <div class="controls">
+    <button id="callBoard">板を呼ぶ</button>
+  </div>
+
+  <!-- モーダルのオーバーレイ -->
+  <div id="modalOverlay" class="modal-overlay">
+    <!-- 確認モーダル -->
+    <div id="confirmModal" class="modal">
+      <h3>板を呼び出しますか？</h3>
+      <p>選択した場所に板を呼び出します</p>
+      <div class="modal-buttons">
+        <button onclick="cancelCall()" style="background: #666;">キャンセル</button>
+        <button onclick="confirmCall()">呼び出す</button>
+      </div>
+    </div>
+    <!-- 呼び出し中モーダル -->
+    <div id="loadingModal" class="modal">
+      <div class="loading-modal-content">
+        <h3>板を呼び出しています</h3>
+        <div class="loader"></div>
+        <p>しばらくお待ちください</p>
+      </div>
+    </div>
+    <!-- 完了モーダル -->
+    <div id="completeModal" class="modal">
+      <h3>呼び出しが完了しました</h3>
+      <p>到着までしばらくお待ちください</p>
+      <div class="modal-buttons">
+        <button onclick="closeModal()">OK</button>
+      </div>
+    </div>
+    <!-- エラーモーダル -->
+    <div id="errorModal" class="modal">
+      <h3>エラー</h3>
+      <p id="errorMessage"></p>
+      <div class="modal-buttons">
+        <button onclick="closeModal()">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let map;
+    let selectedLocation = null;
+    let boardMarker = null;
+    let destinationMarker = null;  // 呼び出し位置のマーカー
+    const initialBoardLocation = { lat: 35.658034, lng: 139.701636 };
+    let batteryLevel = 75;
+    let boardStatus = 'available'; // 'available', 'in-use', 'charging', 'maintenance'
+
+    // モーダル関連の関数
+    function showModal(modalId, message = '') {
+      const overlay = document.getElementById('modalOverlay');
+      if (overlay.style.display !== 'block') {
+        overlay.style.display = 'block';
+      }
+
+      const modals = document.querySelectorAll('.modal');
+      modals.forEach(modal => {
+        modal.style.display = 'none';
+        modal.classList.remove('active');
+      });
+
+      const targetModal = document.getElementById(modalId);
+      targetModal.style.display = 'block';
+      setTimeout(() => targetModal.classList.add('active'), 10);
+
+      if (message) {
+        document.getElementById('errorMessage').textContent = message;
+      }
+    }
+
+    function closeModal() {
+      const modals = document.querySelectorAll('.modal');
+      modals.forEach(modal => {
+        modal.classList.remove('active');
+        setTimeout(() => modal.style.display = 'none', 300);
+      });
+      document.getElementById('modalOverlay').style.display = 'none';
+    }
+
+    function cancelCall() {
+      closeModal();
+    }
+
+    function confirmCall() {
+      document.querySelectorAll('.modal').forEach(modal => {
+        modal.classList.remove('active');
+        setTimeout(() => modal.style.display = 'none', 300);
+      });
+
+      // 状態を使用中に変更
+      updateBoardStatus('in-use');
+
+      setTimeout(() => {
+        showModal('loadingModal');
+
+        // 板が目的地に向かって移動するアニメーション
+        const start = boardMarker.getPosition();
+        const end = destinationMarker.getPosition();
+        const duration = 3000; // 7秒
+        const startTime = Date.now();
+
+        const animate = () => {
+          const elapsed = Date.now() - startTime;
+          const progress = Math.min(elapsed / duration, 1);
+
+          const lat = start.lat() + (end.lat() - start.lat()) * progress;
+          const lng = start.lng() + (end.lng() - start.lng()) * progress;
+          boardMarker.setPosition({ lat, lng });
+
+          if (progress < 1) {
+            requestAnimationFrame(animate);
+          } else {
+            showModal('completeModal');
+            destinationMarker.setVisible(false);
+          }
+        };
+
+        animate();
+      }, 350);
+    }
+
+    function initMap() {
+      map = new google.maps.Map(document.getElementById('map'), {
+        center: initialBoardLocation,
+        zoom: 18,
+        mapTypeControl: false,
+        styles: [
+          {
+            featureType: "poi",
+            elementType: "labels",
+            stylers: [{ visibility: "off" }]
+          }
+        ]
+      });
+
+      // カスタムアイコンのSVGを定義
+      const boardIconSvg = {
+        path: "M20.4,2.8c-0.5-0.5-1.2-0.8-1.9-0.8H5.5c-0.7,0-1.4,0.3-1.9,0.8C3.1,3.3,2.8,4,2.8,4.7v14.6 c0,0.7,0.3,1.4,0.8,1.9c0.5,0.5,1.2,0.8,1.9,0.8h13c0.7,0,1.4-0.3,1.9-0.8c0.5-0.5,0.8-1.2,0.8-1.9V4.7C21.2,4,20.9,3.3,20.4,2.8z M19.2,19.3c0,0.2-0.1,0.4-0.2,0.6c-0.2,0.2-0.4,0.2-0.6,0.2h-13c-0.2,0-0.4-0.1-0.6-0.2c-0.2-0.2-0.2-0.4-0.2-0.6V4.7 c0-0.2,0.1-0.4,0.2-0.6c0.2-0.2,0.4-0.2,0.6-0.2h13c0.2,0,0.4,0.1,0.6,0.2c0.2,0.2,0.2,0.4,0.2,0.6V19.3z M15.5,7.5 c-0.3-0.3-0.7-0.5-1.1-0.5H9.6C9.2,7,8.8,7.2,8.5,7.5C8.2,7.8,8,8.2,8,8.6v6.8c0,0.4,0.2,0.8,0.5,1.1c0.3,0.3,0.7,0.5,1.1,0.5h4.8 c0.4,0,0.8-0.2,1.1-0.5c0.3-0.3,0.5-0.7,0.5-1.1V8.6C16,8.2,15.8,7.8,15.5,7.5z M14,15.4H10v-6h4V15.4z",
+        fillColor: "#2196F3",
+        fillOpacity: 1,
+        strokeColor: "#ffffff",
+        strokeWeight: 2,
+        rotation: 0,
+        scale: 1.5,
+        anchor: new google.maps.Point(12, 12)
+      };
+
+      // 板の初期位置をランダムに設定（渋谷駅周辺）
+      const randomOffset = () => (Math.random() - 0.5) * 0.002; // 約200m範囲
+      const randomBoardLocation = {
+        lat: initialBoardLocation.lat + randomOffset(),
+        lng: initialBoardLocation.lng + randomOffset()
+      };
+
+      console.log('Initial board location:', randomBoardLocation);
+
+      // 板のマーカーを作成
+      boardMarker = new google.maps.Marker({
+        position: randomBoardLocation,
+        map: map,
+        title: '利用可能な板',
+        icon: boardIconSvg
+      });
+
+      // 呼び出し位置のマーカーを作成（初期状態では非表示）
+      destinationMarker = new google.maps.Marker({
+        map: map,
+        visible: false,
+        icon: {
+          path: google.maps.SymbolPath.MARKER,
+          fillColor: '#FF4444',
+          fillOpacity: 1,
+          strokeColor: '#FFFFFF',
+          strokeWeight: 2,
+          scale: 12
+        }
+      });
+
+      // 現在位置を取得して地図の中心を移動
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const currentLocation = {
+              lat: position.coords.latitude,
+              lng: position.coords.longitude
+            };
+            console.log('Current location:', currentLocation);
+            map.setCenter(currentLocation);
+          },
+          () => {
+            showModal('errorModal', '位置情報の取得に失敗しました。位置情報の利用を許可してください。');
+          }
+        );
+      }
+
+      // マーカーの向きをアニメーション
+      let rotation = 0;
+      setInterval(() => {
+        if (boardStatus === 'in-use') {
+          rotation = (rotation + 2) % 360;
+          boardMarker.setIcon({
+            ...boardIconSvg,
+            rotation: rotation
+          });
+        }
+      }, 50);
+
+      // マップクリックイベントの処理
+      map.addListener("click", (e) => {
+        selectedLocation = e.latLng;
+        console.log('Selected location:', selectedLocation.toString());
+        destinationMarker.setPosition(selectedLocation);
+        destinationMarker.setVisible(true);
+      });
+
+      // マーカーの表示確認
+      console.log('Board marker created:', boardMarker !== null);
+      console.log('Board marker position:', boardMarker.getPosition().toString());
+      console.log('Board marker visible:', boardMarker.getVisible());
+    }
+
+    document.getElementById('callBoard').addEventListener('click', function () {
+      if (selectedLocation) {
+        showModal('confirmModal');
+      } else {
+        showModal('errorModal', '呼び出し位置を選択してください');
+      }
+    });
+
+    // バッテリー残量のシミュレーション更新
+    function updateBatteryLevel() {
+      batteryLevel = Math.max(0, Math.min(100, batteryLevel + (Math.random() > 0.5 ? -1 : 1)));
+      const batteryElement = document.getElementById('batteryLevel');
+      const batteryText = document.getElementById('batteryText');
+
+      batteryElement.style.width = batteryLevel + '%';
+      batteryText.textContent = batteryLevel + '%';
+
+      if (batteryLevel < 20) {
+        batteryElement.classList.add('low');
+      } else {
+        batteryElement.classList.remove('low');
+      }
+
+      // 最終更新時刻の更新
+      const now = new Date();
+      const timeString = now.toLocaleString('ja-JP', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+      document.getElementById('lastUpdate').textContent = timeString;
+    }
+
+    // 定期的な状態更新
+    setInterval(updateBatteryLevel, 5000);
+
+    // 板の状態更新関数
+    function updateBoardStatus(status) {
+      const statusElement = document.getElementById('boardStatus');
+      statusElement.className = 'status-badge ' + status;
+
+      const statusTexts = {
+        'available': '利用可能',
+        'in-use': '使用中',
+        'charging': '充電中',
+        'maintenance': 'メンテナンス中'
+      };
+
+      statusElement.textContent = statusTexts[status];
+    }
+  </script>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyArUrpQ9yWCabX4IyexKCRtfmsPsnxQnOQ&callback=initMap"
+    async defer></script>
+</body>
+
+</html>
